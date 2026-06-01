@@ -17,6 +17,15 @@ use futures_util::{
 	StreamExt
 };
 
+use indicatif::{
+	ProgressBar,
+	ProgressStyle
+};
+
+use qrcode::{
+	QrCode
+};
+
 use reqwest::{
 	header,
 	multipart::{
@@ -48,10 +57,15 @@ struct CLI {
 
 #[derive(Subcommand)]
 enum Command {
+	#[command(visible_alias = "p", about = "Test server connection with a ping")]
 	Ping,
+
+	#[command(visible_alias = "u", about = "Upload a file to the server")]
 	Upload {
 		path: PathBuf,
 	},
+
+	#[command(visible_alias = "d", about = "Download a recently uploaded file")]
 	Download {
 		id_or_url: String,
 
@@ -75,17 +89,38 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 		Command::Upload { path } => {
 			let url = format!( "{}/curlup", base );
+			let file_size = tokio::fs::metadata( &path ).await?.len();
+
+			let pb = ProgressBar::new( file_size );
+			pb.set_style( ProgressStyle::default_bar()
+				.template( "{spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
+				.progress_chars( "#>-" )
+			);
 
 			let part = Part::file( &path ).await?;
 			let form = Form::new().part( "f", part );
 
 			let resp = client.post( url ).multipart( form ).send().await?;
+			pb.finish_with_message( "Upload complete" );
+
 			let body = resp.text().await?;
 
-			println!( "{}", body.trim_end() );
-
 			if let Some( file_id ) = extract_file_id( &body ) {
-				println!( "Download: {}/download/{}", base, file_id );
+				let download_url = format!( "{}/download/{}", base, file_id );
+				println!( "\n\nDownload Link: {}", download_url );
+				println!( "File ID: {}", file_id );
+
+				println!( "\nQR Code:\n" );
+				if let Ok( code ) = QrCode::new( &download_url ) {
+					let image = code.render::<char>()
+						.quiet_zone( true )
+						.module_dimensions( 2, 1 )
+						.build();
+
+					println!( "{}\n", image );
+				}
+			} else {
+				println!( "\n{}", body.trim_end() );
 			}
 		}
 
@@ -101,6 +136,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 				return Err( format!( "Download failed ({}): {}", status, body ).into() );
 			}
 
+			let total_size = resp.content_length().unwrap_or( 0 );
+			let pb = ProgressBar::new( total_size );
+			pb.set_style( ProgressStyle::default_bar()
+				.template( "{spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
+				.progress_chars( "#>-" )
+			);
+
 			let filename = output.unwrap_or_else( || {
 				filename_from_headers( resp.headers() ).unwrap_or_else( || PathBuf::from( "download" ) )
 			} );
@@ -110,10 +152,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 			while let Some( chunk ) = stream.next().await {
 				let bytes = chunk?;
+				pb.inc( bytes.len() as u64 );
 				file.write_all( &bytes ).await?;
 			}
 
-			println!( "Saved to {}", filename.display() );
+			pb.finish_with_message( "Download complete" );
+			println!( "\nSaved to: {}\n", filename.display() );
 		}
 	}
 
@@ -150,14 +194,18 @@ fn filename_from_headers( headers: &header::HeaderMap ) -> Option<PathBuf> {
 fn parse_filename_param( header_value: &str ) -> Option<String> {
 	for part in header_value.split( ';' ) {
 		let trimmed = part.trim();
+
 		if let Some( rest ) = trimmed.strip_prefix( "filename=" ) {
 			return Some( rest.trim_matches( '"' ).to_string() );
 		}
+
 		if let Some( rest ) = trimmed.strip_prefix( "filename*=" ) {
 			let decoded = rest.trim_matches( '"' );
+
 			if let Some( idx ) = decoded.find( "''" ) {
 				return Some( decoded[ idx + 2.. ].to_string() );
 			}
+
 			return Some( decoded.to_string() );
 		}
 	}
