@@ -73,6 +73,11 @@ enum Command {
 		path: PathBuf,
 	},
 
+	#[command(visible_alias = "ue", about = "Locally encrypt a file, then upload a file to the server")]
+	UploadEncrypt {
+		path: PathBuf,
+	},
+
 	#[command(visible_alias = "d", about = "Download a recently uploaded file")]
 	Download {
 		id_or_url: String,
@@ -149,6 +154,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					_ => {}
 				}
 			} else { println!( "\n{}", body.trim_end() ); }
+		}
+
+		Command::UploadEncrypt { path } => {
+			println!( "{}", path.to_string_lossy().to_string() );
 		}
 
 		Command::Download { id_or_url, output } => {
