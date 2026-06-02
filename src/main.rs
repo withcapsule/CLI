@@ -2,6 +2,11 @@ use std::{
 	error::{
 		Error
 	},
+	io::{
+		self,
+		Read,
+		Write
+	},
 	path::{
 		Path,
 		PathBuf
@@ -101,7 +106,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 			let form = Form::new().part( "f", part );
 
 			let resp = client.post( url ).multipart( form ).send().await?;
-			pb.finish_with_message( "Upload complete" );
+			pb.finish_with_message( "✓ Upload complete" );
 
 			let body = resp.text().await?;
 
@@ -110,14 +115,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
 				println!( "\n\nDownload Link: {}", download_url );
 				println!( "File ID: {}", file_id );
 
-				println!( "\nQR Code:\n" );
-				if let Ok( code ) = QrCode::new( &download_url ) {
-					let image = code.render::<char>()
-						.quiet_zone( true )
-						.module_dimensions( 2, 1 )
-						.build();
+				println!( "\n(1) Show QR code" );
+				println!( "(any other key) Exit\n" );
+				print!( "> " );
+				io::stdout().flush()?;
 
-					println!( "{}\n", image );
+				let mut buf = [0; 1];
+				io::stdin().read_exact( &mut buf )?;
+
+				if buf[0] == b'1' {
+					println!( "\nQR Code:" );
+					if let Ok( code ) = QrCode::new( &download_url ) {
+						let image = code.render::<char>()
+							.quiet_zone( true )
+							.module_dimensions( 2, 1 )
+							.build();
+						println!( "{}\n", image );
+					}
 				}
 			} else {
 				println!( "\n{}", body.trim_end() );
