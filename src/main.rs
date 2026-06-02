@@ -51,6 +51,8 @@ use tokio::{
 	}
 };
 
+use tokio_util::io::ReaderStream;
+
 #[derive(Parser)]
 #[command(name = "filemover", version, about = "CLI for the FileMover server")]
 struct CLI {
@@ -124,7 +126,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 				.progress_chars( "#>-" )
 			);
 
-			let part = Part::file( &path ).await?;
+			let file = File::open( &path ).await?;
+			let file_name = path.file_name()
+				.map( |n| n.to_string_lossy().to_string() )
+				.unwrap_or_else( || "file".to_string() );
+
+			let pb_clone = pb.clone();
+			let stream = ReaderStream::new( file ).map( move |chunk| {
+				chunk.map( |bytes| {
+					pb_clone.inc( bytes.len() as u64 );
+					bytes
+				} )
+			} );
+
+			let body = reqwest::Body::wrap_stream( stream );
+			let part = Part::stream_with_length( body, file_size ).file_name( file_name );
 			let form = Form::new().part( "f", part );
 
 			let resp = client.post( url ).multipart( form ).send().await?;

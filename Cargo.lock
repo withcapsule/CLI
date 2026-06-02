@@ -541,6 +541,7 @@ dependencies = [
  "qrcode",
  "reqwest",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
