@@ -95,14 +95,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 			let metadata = match tokio::fs::metadata( &path ).await {
 				Ok( metadata ) => metadata,
 				Err( err ) if err.kind() == ErrorKind::NotFound => {
-					eprintln!( "Upload aborted: file not found at {}", path.display() );
+					eprintln!( "\nUpload aborted: file {} not found\n", highlight_path( &path ) );
 					return Ok( () );
 				}
 				Err( err ) => return Err( err.into() ),
 			};
 
 			if metadata.is_dir() {
-				eprintln!( "Upload aborted: {} is a directory. Please provide a file path.", path.display() );
+				eprintln!( "\nUpload aborted: {} is a directory. Please provide a file path.\n", highlight_path( &path ) );
 				return Ok( () );
 			}
 
@@ -124,8 +124,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 			if let Some( file_id ) = extract_file_id( &body ) {
 				let download_url = format!( "{}/download/{}", base, file_id );
-				println!( "\n\nDownload Link: {}", download_url );
-				println!( "File ID: {}\n", file_id );
+				println!( "\n\nDownload Link: {}", highlight_link( &download_url ) );
+				println!( "File ID: {}\n", highlight_id( &file_id ) );
 
 				let options = vec![ "Exit", "Show QR code" ];
 				let selection = Select::new( "What would you like to do?", options ).with_vim_mode( true ).prompt();
@@ -250,4 +250,16 @@ fn parse_filename_param( header_value: &str ) -> Option<String> {
 	}
 
 	return None;
+}
+
+fn highlight_path( path: &Path ) -> String {
+	format!( "\x1b[94m{}\x1b[0m", path.display() )
+}
+
+fn highlight_link( value: &str ) -> String {
+	format!( "\x1b[92m{}\x1b[0m", value )
+}
+
+fn highlight_id( value: &str ) -> String {
+	format!( "\x1b[92m{}\x1b[0m", value )
 }
