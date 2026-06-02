@@ -34,6 +34,8 @@ use indicatif::{
 };
 
 use inquire::{
+	Password,
+	PasswordDisplayMode,
 	Select
 };
 
@@ -42,12 +44,12 @@ use qrcode::{
 };
 
 use reqwest::{
+	Client,
 	header,
 	multipart::{
 		Form,
 		Part
-	},
-	Client
+	}
 };
 
 use tokio::{
@@ -56,8 +58,7 @@ use tokio::{
 		metadata
 	},
 	io::{
-		AsyncWriteExt,
-		BufReader
+		AsyncWriteExt
 	}
 };
 
@@ -238,6 +239,28 @@ fn encrypt_into_temp_file( path: &Path, passphrase: SecretString, file_size: u64
 	return Ok( temp_path );
 }
 
+fn decrypt_from_temp_file( temp_path: &Path, output_path: &Path, passphrase: SecretString ) -> Result<(), Box<dyn Error>> {
+	let input_file = std::fs::File::open( temp_path )?;
+	let file_size = input_file.metadata()?.len();
+
+	let pb = ProgressBar::new( file_size );
+	pb.set_style( ProgressStyle::default_bar()
+		.template( "Decrypting {spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
+		.progress_chars( "#>-" )
+	);
+
+	let decryptor = Decryptor::new( pb.wrap_read( input_file ) )?;
+	let identity = age::scrypt::Identity::new( passphrase );
+	let mut decrypted = decryptor.decrypt( std::iter::once( &identity as &dyn age::Identity ) )?;
+	let mut output_file = std::fs::File::create( output_path )?;
+
+	std::io::copy( &mut decrypted, &mut output_file )?;
+
+	pb.finish_with_message( "Decryption complete" );
+
+	return Ok( () );
+}
+
 async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool ) -> Result<(), Box<dyn Error>> {
 	let url = if encrypt {
 		format!( "{}/curlup?encrypted=true", base )
@@ -388,6 +411,12 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 		return Err( format!( "Download failed ({}): {}", status, body ).into() );
 	}
 
+	let is_encrypted = resp.headers()
+		.get( "X-Encrypted" )
+		.and_then( |v| v.to_str().ok() )
+		.map( |v| v.eq_ignore_ascii_case( "true" ) )
+		.unwrap_or( false );
+
 	let total_size = resp.content_length().unwrap_or( 0 );
 	let pb = ProgressBar::new( total_size );
 	pb.set_style( ProgressStyle::default_bar()
@@ -416,7 +445,15 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 		Err( err ) => return Err( err.into() ),
 	}
 
-	let mut file = File::create( &filename ).await?;
+	let download_path = if is_encrypted {
+		let mut temp = temp_dir();
+		temp.push( format!( "flmvr-dl-{}-{}", SystemTime::now().duration_since( UNIX_EPOCH )?.as_nanos(), process::id() ) );
+		temp
+	} else {
+		filename.clone()
+	};
+
+	let mut file = File::create( &download_path ).await?;
 	let mut stream = resp.bytes_stream();
 
 	while let Some( chunk ) = stream.next().await {
@@ -426,6 +463,20 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 	}
 
 	pb.finish_with_message( "Download complete" );
+
+	if is_encrypted {
+		let passphrase_input = Password::new( "Decryption mnemonic phrases:" )
+			.without_confirmation()
+			.with_display_mode( PasswordDisplayMode::Masked )
+			.prompt()?;
+
+		let passphrase = SecretString::new( passphrase_input.into() );
+
+		decrypt_from_temp_file( &download_path, &filename, passphrase )?;
+
+		let _ = tokio::fs::remove_file( &download_path ).await;
+	}
+
 	println!( "\nSaved to: {}\n", filename.display() );
 
 	return Ok( () )
