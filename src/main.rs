@@ -1,4 +1,5 @@
 use std::{
+	process,
 	error::{
 		Error
 	},
@@ -9,6 +10,13 @@ use std::{
 		Path,
 		PathBuf
 	},
+	time::{
+		SystemTime,
+		UNIX_EPOCH
+	},
+	env::{
+		temp_dir
+	}
 };
 
 use clap::{
@@ -44,14 +52,35 @@ use reqwest::{
 
 use tokio::{
 	fs::{
-		File
+		File,
+		metadata
 	},
 	io::{
-		AsyncWriteExt
+		AsyncWriteExt,
+		BufReader
 	}
 };
 
-use tokio_util::io::ReaderStream;
+use tokio_util::{
+	io::{
+		ReaderStream
+	}
+};
+
+use bip39::{
+	Mnemonic,
+	Language::{
+		English
+	}
+};
+
+use age::{
+	Encryptor,
+	Decryptor,
+	secrecy::{
+		SecretString
+	}
+};
 
 #[derive(Parser)]
 #[command(name = "filemover", version, about = "CLI for the FileMover server")]
@@ -179,14 +208,43 @@ fn highlight_id( value: &str ) -> String {
 	format!( "\x1b[92m{}\x1b[0m", value )
 }
 
+fn encrypt_into_temp_file( path: &Path, passphrase: SecretString ) -> Result<PathBuf, Box<dyn Error>> {
+	let mut temp_path: PathBuf = temp_dir();
+	temp_path.push(
+		format!( "flmvr-{}-{}",
+			SystemTime::now().duration_since( UNIX_EPOCH )?.as_nanos(),
+			process::id(),
+		)
+	);
+
+	let input_file = std::fs::File::open( path )?;
+	let output_file = std::fs::File::create( temp_path.clone() )?;
+
+	let encryptor: Encryptor = Encryptor::with_user_passphrase( passphrase );
+	let mut file_writer = encryptor.wrap_output( output_file )?;
+	let mut file_reader = std::io::BufReader::new( input_file );
+
+	std::io::copy( &mut file_reader, &mut file_writer )?;
+	file_writer.finish()?;
+
+	return Ok( temp_path );
+}
+
 async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool ) -> Result<(), Box<dyn Error>> {
-	let url = format!( "{}/curlup", base );
-	let metadata = match tokio::fs::metadata( &path ).await {
+	let url = if encrypt {
+		format!( "{}/curlup?encrypted=true", base )
+	} else {
+		format!( "{}/curlup", base )
+	};
+
+	let metadata = match metadata( &path ).await {
 		Ok( metadata ) => metadata,
+
 		Err( err ) if err.kind() == ErrorKind::NotFound => {
 			eprintln!( "\nUpload aborted: file {} not found\n", highlight_path( &path ) );
 			return Ok( () );
 		}
+
 		Err( err ) => return Err( err.into() ),
 	};
 
@@ -195,13 +253,35 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 		return Ok( () );
 	}
 
-	let file_size = metadata.len();
+	let file_size: u64 = metadata.len();
 
 	let pb = ProgressBar::new( file_size );
 	pb.set_style( ProgressStyle::default_bar()
 		.template( "{spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
 		.progress_chars( "#>-" )
 	);
+
+	let mut upload_source_file: Option<PathBuf> = None;
+	let mut upload_temp_file: Option<PathBuf> = None;
+	let mut upload_decryption_key: Option<String> = None;
+
+	let mut mnemonic: Mnemonic;
+	let mut mnemonic_text: String;
+	let mut passphrase: SecretString;
+	let mut encrypted_file_path: PathBuf;
+
+	if encrypt {
+		mnemonic = Mnemonic::generate_in( English, 12 )?;
+		mnemonic_text = mnemonic.to_string();
+
+		passphrase = SecretString::new( mnemonic_text.clone().into() );
+		encrypted_file_path = encrypt_into_temp_file( &path, passphrase )?;
+
+		upload_source_file = Some( encrypted_file_path.clone() );
+		upload_temp_file = Some( encrypted_file_path );
+		upload_decryption_key = Some( mnemonic_text );
+	}
+
 
 	let file = File::open( &path ).await?;
 	let file_name = path.file_name()
