@@ -265,10 +265,10 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 	let mut upload_temp_file: Option<PathBuf> = None;
 	let mut upload_decryption_key: Option<String> = None;
 
-	let mut mnemonic: Mnemonic;
-	let mut mnemonic_text: String;
-	let mut passphrase: SecretString;
-	let mut encrypted_file_path: PathBuf;
+	let mnemonic: Mnemonic;
+	let mnemonic_text: String;
+	let passphrase: SecretString;
+	let encrypted_file_path: PathBuf;
 
 	if encrypt {
 		mnemonic = Mnemonic::generate_in( English, 12 )?;
@@ -283,7 +283,17 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 	}
 
 
-	let file = File::open( &path ).await?;
+	let upload_path = upload_source_file.as_deref().unwrap_or( &path );
+
+	let upload_size = if upload_source_file.is_some() {
+		tokio::fs::metadata( upload_path ).await?.len()
+	} else {
+		file_size
+	};
+
+	pb.set_length( upload_size );
+
+	let file = File::open( upload_path ).await?;
 	let file_name = path.file_name()
 		.map( |n| n.to_string_lossy().to_string() )
 		.unwrap_or_else( || "file".to_string() );
@@ -297,11 +307,15 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 	} );
 
 	let body = reqwest::Body::wrap_stream( stream );
-	let part = Part::stream_with_length( body, file_size ).file_name( file_name );
+	let part = Part::stream_with_length( body, upload_size ).file_name( file_name );
 	let form = Form::new().part( "f", part );
 
 	let resp = client.post( url ).multipart( form ).send().await?;
 	pb.finish_with_message( "Upload complete" );
+
+	if let Some( temp ) = upload_temp_file {
+		let _ = tokio::fs::remove_file( temp ).await;
+	}
 
 	let body = resp.text().await?;
 
@@ -310,11 +324,16 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 		println!( "\n\nDownload Link: {}", highlight_link( &download_url ) );
 		println!( "File ID: {}\n", highlight_id( &file_id ) );
 
-		let options = vec![ "Exit", "Show QR code" ];
+		let options = if encrypt {
+			vec![ "(I) Exit", "(II) Show decryption phrases", "(III) Show download link as QR code", "(IV) Both II and III" ]
+		} else {
+			vec![ "Exit", "Show download link as QR code" ]
+		};
+
 		let selection = Select::new( "What would you like to do?", options ).with_vim_mode( true ).prompt();
 
 		match selection {
-			Ok( choice ) if choice == "Show QR code" => {
+			Ok( choice ) if choice == "Show download link as QR code" => {
 				println!( "QR Code:" );
 				if let Ok( code ) = QrCode::new( &download_url ) {
 					let image = code.render::<char>()
@@ -322,6 +341,24 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 						.module_dimensions( 2, 1 )
 						.build();
 					println!( "{}\n", image );
+				}
+			}
+			Ok( choice ) if choice == "Show decryption phrases" => {
+				if let Some( key ) = upload_decryption_key {
+					println!( "Decryption Phrases: {}\n", key );
+				}
+			}
+			Ok( choice ) if choice == "Both 2 and 3" => {
+				println!( "QR Code:" );
+				if let Ok( code ) = QrCode::new( &download_url ) {
+					let image = code.render::<char>()
+						.quiet_zone( true )
+						.module_dimensions( 2, 1 )
+						.build();
+					println!( "{}\n", image );
+				}
+				if let Some( key ) = upload_decryption_key {
+					println!( "Decryption Phrases: {}\n", key );
 				}
 			}
 			_ => {}
