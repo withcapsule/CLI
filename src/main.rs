@@ -325,15 +325,15 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 		println!( "File ID: {}\n", highlight_id( &file_id ) );
 
 		let options = if encrypt {
-			vec![ "(I) Exit", "(II) Show decryption phrases", "(III) Show download link as QR code", "(IV) Both II and III" ]
+			vec![ "(1) Exit", "(2) Show download link as QR code", "(3) Show decryption mnemonic phrases", "(4) Both 2 and 3" ]
 		} else {
-			vec![ "Exit", "Show download link as QR code" ]
+			vec![ "(1) Exit", "(2) Show download link as QR code" ]
 		};
 
 		let selection = Select::new( "What would you like to do?", options ).with_vim_mode( true ).prompt();
 
 		match selection {
-			Ok( choice ) if choice == "Show download link as QR code" => {
+			Ok( choice ) if choice == "(2) Show download link as QR code" => {
 				println!( "QR Code:" );
 				if let Ok( code ) = QrCode::new( &download_url ) {
 					let image = code.render::<char>()
@@ -343,12 +343,12 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 					println!( "{}\n", image );
 				}
 			}
-			Ok( choice ) if choice == "Show decryption phrases" => {
+			Ok( choice ) if choice == "(2) Show decryption phrases" => {
 				if let Some( key ) = upload_decryption_key {
 					println!( "Decryption Phrases: {}\n", key );
 				}
 			}
-			Ok( choice ) if choice == "Both 2 and 3" => {
+			Ok( choice ) if choice == "(4) Both 2 and 3" => {
 				println!( "QR Code:" );
 				if let Ok( code ) = QrCode::new( &download_url ) {
 					let image = code.render::<char>()
