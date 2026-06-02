@@ -2,11 +2,7 @@ use std::{
 	error::{
 		Error
 	},
-	io::{
-		self,
-		Read,
-		Write
-	},
+	io::ErrorKind,
 	path::{
 		Path,
 		PathBuf
@@ -26,6 +22,8 @@ use indicatif::{
 	ProgressBar,
 	ProgressStyle
 };
+
+use inquire::Select;
 
 use qrcode::{
 	QrCode
@@ -106,36 +104,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
 			let form = Form::new().part( "f", part );
 
 			let resp = client.post( url ).multipart( form ).send().await?;
-			pb.finish_with_message( "✓ Upload complete" );
+			pb.finish_with_message( "Upload complete" );
 
 			let body = resp.text().await?;
 
 			if let Some( file_id ) = extract_file_id( &body ) {
 				let download_url = format!( "{}/download/{}", base, file_id );
 				println!( "\n\nDownload Link: {}", download_url );
-				println!( "File ID: {}", file_id );
+				println!( "File ID: {}\n", file_id );
 
-				println!( "\n(1) Show QR code" );
-				println!( "(any other key) Exit\n" );
-				print!( "> " );
-				io::stdout().flush()?;
+				let options = vec![ "Exit", "Show QR code" ];
+				let selection = Select::new( "What would you like to do?", options ).with_vim_mode( true ).prompt();
 
-				let mut buf = [0; 1];
-				io::stdin().read_exact( &mut buf )?;
-
-				if buf[0] == b'1' {
-					println!( "\nQR Code:" );
-					if let Ok( code ) = QrCode::new( &download_url ) {
-						let image = code.render::<char>()
-							.quiet_zone( true )
-							.module_dimensions( 2, 1 )
-							.build();
-						println!( "{}\n", image );
+				match selection {
+					Ok( choice ) if choice == "Show QR code" => {
+						println!( "QR Code:" );
+						if let Ok( code ) = QrCode::new( &download_url ) {
+							let image = code.render::<char>()
+								.quiet_zone( true )
+								.module_dimensions( 2, 1 )
+								.build();
+							println!( "{}\n", image );
+						}
 					}
+					_ => {}
 				}
-			} else {
-				println!( "\n{}", body.trim_end() );
-			}
+			} else { println!( "\n{}", body.trim_end() ); }
 		}
 
 		Command::Download { id_or_url, output } => {
@@ -160,6 +154,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
 			let filename = output.unwrap_or_else( || {
 				filename_from_headers( resp.headers() ).unwrap_or_else( || PathBuf::from( "download" ) )
 			} );
+
+			match tokio::fs::metadata( &filename ).await {
+				Ok( _ ) => {
+					let options = vec![ "No", "Yes" ];
+					let selection = Select::new( &format!( "File `{}` already exists. Overwrite?", {filename.to_string_lossy().to_string()} ).to_string(), options ).with_vim_mode( true ).prompt();
+
+					match selection {
+						Ok( choice ) if choice == "Yes" => {}
+						_ => {
+							println!( "\nDownload cancelled.\n" );
+							return Ok( () );
+						}
+					}
+				}
+				Err( err ) if err.kind() == ErrorKind::NotFound => {}
+				Err( err ) => return Err( err.into() ),
+			}
 
 			let mut file = File::create( &filename ).await?;
 			let mut stream = resp.bytes_stream();
