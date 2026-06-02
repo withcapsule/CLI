@@ -2,7 +2,9 @@ use std::{
 	error::{
 		Error
 	},
-	io::ErrorKind,
+	io::{
+		ErrorKind
+	},
 	path::{
 		Path,
 		PathBuf
@@ -23,7 +25,9 @@ use indicatif::{
 	ProgressStyle
 };
 
-use inquire::Select;
+use inquire::{
+	Select
+};
 
 use qrcode::{
 	QrCode
@@ -50,7 +54,8 @@ use tokio::{
 #[derive(Parser)]
 #[command(name = "filemover", version, about = "CLI for the FileMover server")]
 struct CLI {
-	#[arg(long, default_value = "http://localhost:9001")]
+	// #[arg(long, default_value = "http://localhost:9001")]
+	#[arg(long, default_value = "https://filemover.byseansingh.com")]
 	server: String,
 
 	#[command(subcommand)]
