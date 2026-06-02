@@ -208,7 +208,7 @@ fn highlight_id( value: &str ) -> String {
 	format!( "\x1b[92m{}\x1b[0m", value )
 }
 
-fn encrypt_into_temp_file( path: &Path, passphrase: SecretString ) -> Result<PathBuf, Box<dyn Error>> {
+fn encrypt_into_temp_file( path: &Path, passphrase: SecretString, file_size: u64 ) -> Result<PathBuf, Box<dyn Error>> {
 	let mut temp_path: PathBuf = temp_dir();
 	temp_path.push(
 		format!( "flmvr-{}-{}",
@@ -220,12 +220,20 @@ fn encrypt_into_temp_file( path: &Path, passphrase: SecretString ) -> Result<Pat
 	let input_file = std::fs::File::open( path )?;
 	let output_file = std::fs::File::create( temp_path.clone() )?;
 
+	let pb = ProgressBar::new( file_size );
+	pb.set_style( ProgressStyle::default_bar()
+		.template( "Encrypting {spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
+		.progress_chars( "#>-" )
+	);
+
 	let encryptor: Encryptor = Encryptor::with_user_passphrase( passphrase );
 	let mut file_writer = encryptor.wrap_output( output_file )?;
-	let mut file_reader = std::io::BufReader::new( input_file );
+	let mut file_reader = std::io::BufReader::new( pb.wrap_read( input_file ) );
 
 	std::io::copy( &mut file_reader, &mut file_writer )?;
 	file_writer.finish()?;
+
+	pb.finish_with_message( "Encryption complete" );
 
 	return Ok( temp_path );
 }
@@ -257,7 +265,7 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 
 	let pb = ProgressBar::new( file_size );
 	pb.set_style( ProgressStyle::default_bar()
-		.template( "{spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
+		.template( "Uploading {spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
 		.progress_chars( "#>-" )
 	);
 
@@ -275,7 +283,7 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 		mnemonic_text = mnemonic.to_string();
 
 		passphrase = SecretString::new( mnemonic_text.clone().into() );
-		encrypted_file_path = encrypt_into_temp_file( &path, passphrase )?;
+		encrypted_file_path = encrypt_into_temp_file( &path, passphrase, file_size )?;
 
 		upload_source_file = Some( encrypted_file_path.clone() );
 		upload_temp_file = Some( encrypted_file_path );
@@ -343,9 +351,9 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 					println!( "{}\n", image );
 				}
 			}
-			Ok( choice ) if choice == "(2) Show decryption phrases" => {
+			Ok( choice ) if choice == "(3) Show decryption mnemonic phrases" => {
 				if let Some( key ) = upload_decryption_key {
-					println!( "Decryption Phrases: {}\n", key );
+					println!( "\nDecryption Phrases: {}\n", key );
 				}
 			}
 			Ok( choice ) if choice == "(4) Both 2 and 3" => {
