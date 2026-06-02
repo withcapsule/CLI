@@ -92,7 +92,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 		Command::Upload { path } => {
 			let url = format!( "{}/curlup", base );
-			let file_size = tokio::fs::metadata( &path ).await?.len();
+			let metadata = match tokio::fs::metadata( &path ).await {
+				Ok( metadata ) => metadata,
+				Err( err ) if err.kind() == ErrorKind::NotFound => {
+					eprintln!( "Upload aborted: file not found at {}", path.display() );
+					return Ok( () );
+				}
+				Err( err ) => return Err( err.into() ),
+			};
+
+			if metadata.is_dir() {
+				eprintln!( "Upload aborted: {} is a directory. Please provide a file path.", path.display() );
+				return Ok( () );
+			}
+
+			let file_size = metadata.len();
 
 			let pb = ProgressBar::new( file_size );
 			pb.set_style( ProgressStyle::default_bar()
