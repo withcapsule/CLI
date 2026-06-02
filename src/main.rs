@@ -76,7 +76,7 @@ enum Command {
 	},
 
 	#[command(visible_alias = "ue", about = "Locally encrypt a file, then upload a file to the server")]
-	UploadEncrypt {
+	UploadEncrypted {
 		path: PathBuf,
 	},
 
@@ -103,130 +103,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		}
 
 		Command::Upload { path } => {
-			let url = format!( "{}/curlup", base );
-			let metadata = match tokio::fs::metadata( &path ).await {
-				Ok( metadata ) => metadata,
-				Err( err ) if err.kind() == ErrorKind::NotFound => {
-					eprintln!( "\nUpload aborted: file {} not found\n", highlight_path( &path ) );
-					return Ok( () );
-				}
-				Err( err ) => return Err( err.into() ),
-			};
-
-			if metadata.is_dir() {
-				eprintln!( "\nUpload aborted: {} is a directory. Please provide a file path.\n", highlight_path( &path ) );
-				return Ok( () );
-			}
-
-			let file_size = metadata.len();
-
-			let pb = ProgressBar::new( file_size );
-			pb.set_style( ProgressStyle::default_bar()
-				.template( "{spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
-				.progress_chars( "#>-" )
-			);
-
-			let file = File::open( &path ).await?;
-			let file_name = path.file_name()
-				.map( |n| n.to_string_lossy().to_string() )
-				.unwrap_or_else( || "file".to_string() );
-
-			let pb_clone = pb.clone();
-			let stream = ReaderStream::new( file ).map( move |chunk| {
-				chunk.map( |bytes| {
-					pb_clone.inc( bytes.len() as u64 );
-					bytes
-				} )
-			} );
-
-			let body = reqwest::Body::wrap_stream( stream );
-			let part = Part::stream_with_length( body, file_size ).file_name( file_name );
-			let form = Form::new().part( "f", part );
-
-			let resp = client.post( url ).multipart( form ).send().await?;
-			pb.finish_with_message( "Upload complete" );
-
-			let body = resp.text().await?;
-
-			if let Some( file_id ) = extract_file_id( &body ) {
-				let download_url = format!( "{}/download/{}", base, file_id );
-				println!( "\n\nDownload Link: {}", highlight_link( &download_url ) );
-				println!( "File ID: {}\n", highlight_id( &file_id ) );
-
-				let options = vec![ "Exit", "Show QR code" ];
-				let selection = Select::new( "What would you like to do?", options ).with_vim_mode( true ).prompt();
-
-				match selection {
-					Ok( choice ) if choice == "Show QR code" => {
-						println!( "QR Code:" );
-						if let Ok( code ) = QrCode::new( &download_url ) {
-							let image = code.render::<char>()
-								.quiet_zone( true )
-								.module_dimensions( 2, 1 )
-								.build();
-							println!( "{}\n", image );
-						}
-					}
-					_ => {}
-				}
-			} else { println!( "\n{}", body.trim_end() ); }
+			upload_file( &client, base, path, false ).await?;
 		}
 
-		Command::UploadEncrypt { path } => {
-			println!( "{}", path.to_string_lossy().to_string() );
+		Command::UploadEncrypted { path } => {
+			upload_file( &client, base, path, true ).await?;
 		}
 
 		Command::Download { id_or_url, output } => {
-			let id = extract_id_from_input( &id_or_url );
-			let url = format!( "{}/download/{}", base, id );
-			let resp = client.get( url ).send().await?;
-
-			if !resp.status().is_success() {
-				let status = resp.status();
-				let body = resp.text().await.unwrap_or_default();
-
-				return Err( format!( "Download failed ({}): {}", status, body ).into() );
-			}
-
-			let total_size = resp.content_length().unwrap_or( 0 );
-			let pb = ProgressBar::new( total_size );
-			pb.set_style( ProgressStyle::default_bar()
-				.template( "{spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
-				.progress_chars( "#>-" )
-			);
-
-			let filename = output.unwrap_or_else( || {
-				filename_from_headers( resp.headers() ).unwrap_or_else( || PathBuf::from( "download" ) )
-			} );
-
-			match tokio::fs::metadata( &filename ).await {
-				Ok( _ ) => {
-					let options = vec![ "No", "Yes" ];
-					let selection = Select::new( &format!( "File `{}` already exists. Overwrite?", {filename.to_string_lossy().to_string()} ).to_string(), options ).with_vim_mode( true ).prompt();
-
-					match selection {
-						Ok( choice ) if choice == "Yes" => {}
-						_ => {
-							println!( "\nDownload cancelled.\n" );
-							return Ok( () );
-						}
-					}
-				}
-				Err( err ) if err.kind() == ErrorKind::NotFound => {}
-				Err( err ) => return Err( err.into() ),
-			}
-
-			let mut file = File::create( &filename ).await?;
-			let mut stream = resp.bytes_stream();
-
-			while let Some( chunk ) = stream.next().await {
-				let bytes = chunk?;
-				pb.inc( bytes.len() as u64 );
-				file.write_all( &bytes ).await?;
-			}
-
-			pb.finish_with_message( "Download complete" );
-			println!( "\nSaved to: {}\n", filename.display() );
+			download_file( &client, base, id_or_url, output ).await?;
 		}
 	}
 
@@ -292,4 +177,131 @@ fn highlight_link( value: &str ) -> String {
 
 fn highlight_id( value: &str ) -> String {
 	format!( "\x1b[92m{}\x1b[0m", value )
+}
+
+async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool ) -> Result<(), Box<dyn Error>> {
+	let url = format!( "{}/curlup", base );
+	let metadata = match tokio::fs::metadata( &path ).await {
+		Ok( metadata ) => metadata,
+		Err( err ) if err.kind() == ErrorKind::NotFound => {
+			eprintln!( "\nUpload aborted: file {} not found\n", highlight_path( &path ) );
+			return Ok( () );
+		}
+		Err( err ) => return Err( err.into() ),
+	};
+
+	if metadata.is_dir() {
+		eprintln!( "\nUpload aborted: {} is a directory. Please provide a file path.\n", highlight_path( &path ) );
+		return Ok( () );
+	}
+
+	let file_size = metadata.len();
+
+	let pb = ProgressBar::new( file_size );
+	pb.set_style( ProgressStyle::default_bar()
+		.template( "{spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
+		.progress_chars( "#>-" )
+	);
+
+	let file = File::open( &path ).await?;
+	let file_name = path.file_name()
+		.map( |n| n.to_string_lossy().to_string() )
+		.unwrap_or_else( || "file".to_string() );
+
+	let pb_clone = pb.clone();
+	let stream = ReaderStream::new( file ).map( move |chunk| {
+		chunk.map( |bytes| {
+			pb_clone.inc( bytes.len() as u64 );
+			bytes
+		} )
+	} );
+
+	let body = reqwest::Body::wrap_stream( stream );
+	let part = Part::stream_with_length( body, file_size ).file_name( file_name );
+	let form = Form::new().part( "f", part );
+
+	let resp = client.post( url ).multipart( form ).send().await?;
+	pb.finish_with_message( "Upload complete" );
+
+	let body = resp.text().await?;
+
+	if let Some( file_id ) = extract_file_id( &body ) {
+		let download_url = format!( "{}/download/{}", base, file_id );
+		println!( "\n\nDownload Link: {}", highlight_link( &download_url ) );
+		println!( "File ID: {}\n", highlight_id( &file_id ) );
+
+		let options = vec![ "Exit", "Show QR code" ];
+		let selection = Select::new( "What would you like to do?", options ).with_vim_mode( true ).prompt();
+
+		match selection {
+			Ok( choice ) if choice == "Show QR code" => {
+				println!( "QR Code:" );
+				if let Ok( code ) = QrCode::new( &download_url ) {
+					let image = code.render::<char>()
+						.quiet_zone( true )
+						.module_dimensions( 2, 1 )
+						.build();
+					println!( "{}\n", image );
+				}
+			}
+			_ => {}
+		}
+	} else { println!( "\n{}", body.trim_end() ); }
+
+	return Ok( () );
+}
+
+async fn download_file( client:&Client, base: &str, id_or_url: String, output: Option<PathBuf> ) -> Result<(), Box<dyn Error>> {
+	let id = extract_id_from_input( &id_or_url );
+	let url = format!( "{}/download/{}", base, id );
+	let resp = client.get( url ).send().await?;
+
+	if !resp.status().is_success() {
+		let status = resp.status();
+		let body = resp.text().await.unwrap_or_default();
+
+		return Err( format!( "Download failed ({}): {}", status, body ).into() );
+	}
+
+	let total_size = resp.content_length().unwrap_or( 0 );
+	let pb = ProgressBar::new( total_size );
+	pb.set_style( ProgressStyle::default_bar()
+		.template( "{spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
+		.progress_chars( "#>-" )
+	);
+
+	let filename = output.unwrap_or_else( || {
+		filename_from_headers( resp.headers() ).unwrap_or_else( || PathBuf::from( "download" ) )
+	} );
+
+	match tokio::fs::metadata( &filename ).await {
+		Ok( _ ) => {
+			let options = vec![ "No", "Yes" ];
+			let selection = Select::new( &format!( "File `{}` already exists. Overwrite?", {filename.to_string_lossy().to_string()} ).to_string(), options ).with_vim_mode( true ).prompt();
+
+			match selection {
+				Ok( choice ) if choice == "Yes" => {}
+				_ => {
+					println!( "\nDownload cancelled.\n" );
+					return Ok( () );
+				}
+			}
+		}
+		Err( err ) if err.kind() == ErrorKind::NotFound => {}
+		Err( err ) => return Err( err.into() ),
+	}
+
+	let mut file = File::create( &filename ).await?;
+	let mut stream = resp.bytes_stream();
+
+	while let Some( chunk ) = stream.next().await {
+		let bytes = chunk?;
+		pb.inc( bytes.len() as u64 );
+		file.write_all( &bytes ).await?;
+	}
+
+	pb.finish_with_message( "Download complete" );
+	println!( "\nSaved to: {}\n", filename.display() );
+
+	return Ok( () )
 }
