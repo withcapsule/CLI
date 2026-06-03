@@ -202,7 +202,7 @@ fn format_timestamp( secs: u64 ) -> String {
 #[command(name = "capsule", version, about = "CLI for the Capsule server")]
 struct CLI {
 	// #[arg(long, default_value = "http://localhost:9001")]
-	#[arg(long, default_value = "https://capsule.byseansingh.com")]
+	#[arg(long, default_value = "https://send.withcapsule.dev")]
 	server: String,
 
 	#[command(subcommand)]
