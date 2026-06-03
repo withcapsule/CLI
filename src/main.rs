@@ -108,6 +108,7 @@ use age::{
 };
 
 const HISTORY_MAX: usize = 15;
+const DEFAULT_SERVER: &str = "https://send.withcapsule.dev";
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -202,7 +203,7 @@ fn format_timestamp( secs: u64 ) -> String {
 #[command(name = "capsule", version, about = "CLI for the Capsule server")]
 struct CLI {
 	// #[arg(long, default_value = "http://localhost:9001")]
-	#[arg(long, default_value = "https://send.withcapsule.dev")]
+	#[arg(long, default_value = DEFAULT_SERVER)]
 	server: String,
 
 	#[command(subcommand)]
