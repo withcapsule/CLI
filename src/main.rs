@@ -52,7 +52,8 @@ use inquire::{
 };
 
 use qrcode::{
-	QrCode
+	QrCode,
+	render::unicode,
 };
 
 use reqwest::{
@@ -521,9 +522,9 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 			Ok( choice ) if choice == "(2) Show download link as QR code" => {
 				println!( "QR Code:" );
 				if let Ok( code ) = QrCode::new( &download_url ) {
-					let image = code.render::<char>()
+					let image = code.render::<unicode::Dense1x2>()
 						.quiet_zone( true )
-						.module_dimensions( 2, 1 )
+						.module_dimensions( 1, 1 )
 						.build();
 					println!( "{}\n", image );
 				}
@@ -536,9 +537,9 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 			Ok( choice ) if choice == "(4) Both 2 and 3" => {
 				println!( "QR Code:" );
 				if let Ok( code ) = QrCode::new( &download_url ) {
-					let image = code.render::<char>()
+					let image = code.render::<unicode::Dense1x2>()
 						.quiet_zone( true )
-						.module_dimensions( 2, 1 )
+						.module_dimensions( 1, 1 )
 						.build();
 					println!( "{}\n", image );
 				}
