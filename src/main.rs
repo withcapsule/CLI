@@ -3,6 +3,10 @@ use std::{
 	error::{
 		Error
 	},
+	fs::{
+		Metadata,
+		File as StdFile
+	},
 	io::{
 		ErrorKind
 	},
@@ -15,7 +19,8 @@ use std::{
 		UNIX_EPOCH
 	},
 	env::{
-		temp_dir
+		temp_dir,
+		current_dir
 	}
 };
 
@@ -35,7 +40,9 @@ use indicatif::{
 
 use inquire::{
 	Password,
-	PasswordDisplayMode,
+	PasswordDisplayMode::{
+		Masked
+	},
 	Select
 };
 
@@ -55,7 +62,10 @@ use reqwest::{
 use tokio::{
 	fs::{
 		File,
-		metadata
+		metadata,
+		rename,
+		copy,
+		remove_file
 	},
 	io::{
 		AsyncWriteExt
@@ -80,6 +90,9 @@ use age::{
 	Decryptor,
 	secrecy::{
 		SecretString
+	},
+	scrypt::{
+		Identity
 	}
 };
 
@@ -218,8 +231,8 @@ fn encrypt_into_temp_file( path: &Path, passphrase: SecretString, file_size: u64
 		)
 	);
 
-	let input_file = std::fs::File::open( path )?;
-	let output_file = std::fs::File::create( temp_path.clone() )?;
+	let input_file = StdFile::open( path )?;
+	let output_file = StdFile::create( temp_path.clone() )?;
 
 	let pb = ProgressBar::new( file_size );
 	pb.set_style( ProgressStyle::default_bar()
@@ -240,7 +253,7 @@ fn encrypt_into_temp_file( path: &Path, passphrase: SecretString, file_size: u64
 }
 
 fn decrypt_from_temp_file( temp_path: &Path, output_path: &Path, passphrase: SecretString ) -> Result<(), Box<dyn Error>> {
-	let input_file = std::fs::File::open( temp_path )?;
+	let input_file = StdFile::open( temp_path )?;
 	let file_size = input_file.metadata()?.len();
 
 	let pb = ProgressBar::new( file_size );
@@ -250,9 +263,9 @@ fn decrypt_from_temp_file( temp_path: &Path, output_path: &Path, passphrase: Sec
 	);
 
 	let decryptor = Decryptor::new( pb.wrap_read( input_file ) )?;
-	let identity = age::scrypt::Identity::new( passphrase );
+	let identity = Identity::new( passphrase );
 	let mut decrypted = decryptor.decrypt( std::iter::once( &identity as &dyn age::Identity ) )?;
-	let mut output_file = std::fs::File::create( output_path )?;
+	let mut output_file = StdFile::create( output_path )?;
 
 	std::io::copy( &mut decrypted, &mut output_file )?;
 
@@ -268,7 +281,7 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 		format!( "{}/curlup", base )
 	};
 
-	let metadata = match metadata( &path ).await {
+	let file_metadata: Metadata = match metadata( &path ).await {
 		Ok( metadata ) => metadata,
 
 		Err( err ) if err.kind() == ErrorKind::NotFound => {
@@ -279,12 +292,12 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 		Err( err ) => return Err( err.into() ),
 	};
 
-	if metadata.is_dir() {
+	if file_metadata.is_dir() {
 		eprintln!( "\nUpload aborted: {} is a directory. Please provide a file path.\n", highlight_path( &path ) );
 		return Ok( () );
 	}
 
-	let file_size: u64 = metadata.len();
+	let file_size: u64 = file_metadata.len();
 
 	let pb = ProgressBar::new( file_size );
 	pb.set_style( ProgressStyle::default_bar()
@@ -317,7 +330,7 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 	let upload_path = upload_source_file.as_deref().unwrap_or( &path );
 
 	let upload_size = if upload_source_file.is_some() {
-		tokio::fs::metadata( upload_path ).await?.len()
+		metadata( upload_path ).await?.len()
 	} else {
 		file_size
 	};
@@ -471,14 +484,14 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 		loop {
 			let passphrase_input = Password::new( "Decryption mnemonic phrases:" )
 				.without_confirmation()
-				.with_display_mode( PasswordDisplayMode::Masked )
+				.with_display_mode( Masked )
 				.prompt()?;
 
 			let passphrase = SecretString::new( passphrase_input.into() );
 
 			match decrypt_from_temp_file( &download_path, &filename, passphrase ) {
 				Ok( _ ) => {
-					let _ = tokio::fs::remove_file( &download_path ).await;
+					let _ = remove_file( &download_path ).await;
 					break;
 				}
 
@@ -501,10 +514,10 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 
 					match choice {
 						Ok( "Keep file and exit" ) => {
-							let dest = std::env::current_dir()?.join( filename.file_name().unwrap_or( filename.as_os_str() ) );
-							if tokio::fs::rename( &download_path, &dest ).await.is_err() {
-								tokio::fs::copy( &download_path, &dest ).await?;
-								let _ = tokio::fs::remove_file( &download_path ).await;
+							let dest = current_dir()?.join( filename.file_name().unwrap_or( filename.as_os_str() ) );
+							if rename( &download_path, &dest ).await.is_err() {
+								copy( &download_path, &dest ).await?;
+								let _ = remove_file( &download_path ).await;
 							}
 							println!( "\nEncrypted file kept at: {}\n", dest.display() );
 							return Ok( () );
@@ -514,7 +527,7 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 							continue;
 						}
 						_ => {
-							let _ = tokio::fs::remove_file( &download_path ).await;
+							let _ = remove_file( &download_path ).await;
 							println!( "\nDownload discarded.\n" );
 							return Ok( () );
 						}
