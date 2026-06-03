@@ -465,16 +465,63 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 	pb.finish_with_message( "Download complete" );
 
 	if is_encrypted {
-		let passphrase_input = Password::new( "Decryption mnemonic phrases:" )
-			.without_confirmation()
-			.with_display_mode( PasswordDisplayMode::Masked )
-			.prompt()?;
+		const MAX_ATTEMPTS: u32 = 3;
+		let mut attempts = 0;
 
-		let passphrase = SecretString::new( passphrase_input.into() );
+		loop {
+			let passphrase_input = Password::new( "Decryption mnemonic phrases:" )
+				.without_confirmation()
+				.with_display_mode( PasswordDisplayMode::Masked )
+				.prompt()?;
 
-		decrypt_from_temp_file( &download_path, &filename, passphrase )?;
+			let passphrase = SecretString::new( passphrase_input.into() );
 
-		let _ = tokio::fs::remove_file( &download_path ).await;
+			match decrypt_from_temp_file( &download_path, &filename, passphrase ) {
+				Ok( _ ) => {
+					let _ = tokio::fs::remove_file( &download_path ).await;
+					break;
+				}
+
+				Err( _ ) => {
+					attempts += 1;
+					let remaining = MAX_ATTEMPTS - attempts;
+
+					if remaining > 0 {
+						eprintln!( "\nDecryption failed. {} attempt{} remaining.\n", remaining, if remaining == 1 { "" } else { "s" } );
+						continue;
+					}
+
+					eprintln!( "\nDecryption failed after {} attempts.\n", MAX_ATTEMPTS );
+
+					let choice = Select::new( "What would you like to do?", vec![
+						"Exit (delete downloaded file)",
+						"Keep file and exit",
+						"Try again",
+					] ).with_vim_mode( true ).prompt();
+
+					match choice {
+						Ok( "Keep file and exit" ) => {
+							let dest = std::env::current_dir()?.join( filename.file_name().unwrap_or( filename.as_os_str() ) );
+							if tokio::fs::rename( &download_path, &dest ).await.is_err() {
+								tokio::fs::copy( &download_path, &dest ).await?;
+								let _ = tokio::fs::remove_file( &download_path ).await;
+							}
+							println!( "\nEncrypted file kept at: {}\n", dest.display() );
+							return Ok( () );
+						}
+						Ok( "Try again" ) => {
+							attempts = 0;
+							continue;
+						}
+						_ => {
+							let _ = tokio::fs::remove_file( &download_path ).await;
+							println!( "\nDownload discarded.\n" );
+							return Ok( () );
+						}
+					}
+				}
+			}
+		}
 	}
 
 	println!( "\nSaved to: {}\n", filename.display() );
