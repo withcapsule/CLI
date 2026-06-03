@@ -1,5 +1,4 @@
 target/
 capsule-cli
-node_modules
 
-*.md
+
