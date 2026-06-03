@@ -24,6 +24,11 @@ use std::{
 	}
 };
 
+use serde::{
+	Serialize,
+	Deserialize
+};
+
 use clap::{
 	Parser,
 	Subcommand
@@ -96,6 +101,97 @@ use age::{
 	}
 };
 
+const HISTORY_MAX: usize = 15;
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum HistoryEntry {
+	Upload {
+		file_name: String,
+		file_id:   String,
+		url:       String,
+		encrypted: bool,
+		timestamp: u64,
+	},
+	Download {
+		file_name: String,
+		file_id:   String,
+		encrypted: bool,
+		timestamp: u64,
+	},
+}
+
+fn history_path() -> Option<PathBuf> {
+	let mut path = dirs::data_dir()?;
+	path.push( "filemover" );
+	path.push( "history.json" );
+	Some( path )
+}
+
+fn load_history() -> Vec<HistoryEntry> {
+	let path = match history_path() {
+		Some( p ) => p,
+		None => return vec![],
+	};
+	let data = match std::fs::read_to_string( &path ) {
+		Ok( s ) => s,
+		Err( _ ) => return vec![],
+	};
+	serde_json::from_str( &data ).unwrap_or_default()
+}
+
+fn save_history( mut entries: Vec<HistoryEntry> ) {
+	let path = match history_path() {
+		Some( p ) => p,
+		None => return,
+	};
+	if let Some( parent ) = path.parent() {
+		let _ = std::fs::create_dir_all( parent );
+	}
+	if entries.len() > HISTORY_MAX {
+		entries.drain( 0..entries.len() - HISTORY_MAX );
+	}
+	if let Ok( json ) = serde_json::to_string_pretty( &entries ) {
+		let _ = std::fs::write( &path, json );
+	}
+}
+
+fn record_upload( file_name: String, file_id: String, url: String, encrypted: bool ) {
+	let mut entries = load_history();
+	entries.push( HistoryEntry::Upload {
+		file_name,
+		file_id,
+		url,
+		encrypted,
+		timestamp: SystemTime::now().duration_since( UNIX_EPOCH ).map( |d| d.as_secs() ).unwrap_or( 0 ),
+	} );
+	save_history( entries );
+}
+
+fn record_download( file_name: String, file_id: String, encrypted: bool ) {
+	let mut entries = load_history();
+	entries.push( HistoryEntry::Download {
+		file_name,
+		file_id,
+		encrypted,
+		timestamp: SystemTime::now().duration_since( UNIX_EPOCH ).map( |d| d.as_secs() ).unwrap_or( 0 ),
+	} );
+	save_history( entries );
+}
+
+fn format_timestamp( secs: u64 ) -> String {
+	let now = SystemTime::now().duration_since( UNIX_EPOCH ).map( |d| d.as_secs() ).unwrap_or( 0 );
+	let diff = now.saturating_sub( secs );
+
+	match diff {
+		0..=59           => "just now".to_string(),
+		60..=3599        => format!( "{}m ago", diff / 60 ),
+		3600..=86399     => format!( "{}h ago", diff / 3600 ),
+		86400..=2591999  => format!( "{}d ago", diff / 86400 ),
+		_                => format!( "{}mo ago", diff / 2592000 ),
+	}
+}
+
 #[derive(Parser)]
 #[command(name = "filemover", version, about = "CLI for the FileMover server")]
 struct CLI {
@@ -130,6 +226,9 @@ enum Command {
 		#[arg(short, long)]
 		output: Option<PathBuf>,
 	},
+
+	#[command(visible_alias = "r", about = "Show recent uploads and downloads")]
+	Recents,
 }
 
 #[tokio::main]
@@ -155,6 +254,41 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 		Command::Download { id_or_url, output } => {
 			download_file( &client, base, id_or_url, output ).await?;
+		}
+
+		Command::Recents => {
+			let entries = load_history();
+
+			if entries.is_empty() {
+				println!( "\nNo recent activity.\n" );
+				return Ok( () );
+			}
+
+			println!();
+
+			for entry in entries.iter().rev() {
+				match entry {
+					HistoryEntry::Upload { file_name, file_id, url, encrypted, timestamp } => {
+						let lock = if *encrypted { " [encrypted]" } else { "" };
+						println!(
+							"  \x1b[92mUPLOAD\x1b[0m  {}{}\n          ID: {}  |  {}\n          {}\n",
+							file_name, lock,
+							highlight_id( file_id ),
+							format_timestamp( *timestamp ),
+							highlight_link( url ),
+						);
+					}
+					HistoryEntry::Download { file_name, file_id, encrypted, timestamp } => {
+						let lock = if *encrypted { " [encrypted]" } else { "" };
+						println!(
+							"  \x1b[94mDOWNLOAD\x1b[0m  {}{}\n            ID: {}  |  {}\n",
+							file_name, lock,
+							highlight_id( file_id ),
+							format_timestamp( *timestamp ),
+						);
+					}
+				}
+			}
 		}
 	}
 
@@ -368,6 +502,13 @@ async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool )
 		println!( "\n\nDownload Link: {}", highlight_link( &download_url ) );
 		println!( "File ID: {}\n", highlight_id( &file_id ) );
 
+		record_upload(
+			path.file_name().map( |n| n.to_string_lossy().to_string() ).unwrap_or_default(),
+			file_id.clone(),
+			download_url.clone(),
+			encrypt,
+		);
+
 		let options = if encrypt {
 			vec![ "(1) Exit", "(2) Show download link as QR code", "(3) Show decryption mnemonic phrases", "(4) Both 2 and 3" ]
 		} else {
@@ -536,6 +677,12 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 			}
 		}
 	}
+
+	record_download(
+		filename.file_name().map( |n| n.to_string_lossy().to_string() ).unwrap_or_default(),
+		id,
+		is_encrypted,
+	);
 
 	println!( "\nSaved to: {}\n", filename.display() );
 
