@@ -239,6 +239,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
+name = "capsule-cli"
+version = "0.1.0"
+dependencies = [
+ "age",
+ "bip39",
+ "clap",
+ "clap_complete",
+ "dirs",
+ "futures-util",
+ "indicatif",
+ "inquire",
+ "qrcode",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -559,26 +579,6 @@ name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
-
-[[package]]
-name = "filemover-cli"
-version = "0.1.0"
-dependencies = [
- "age",
- "bip39",
- "clap",
- "clap_complete",
- "dirs",
- "futures-util",
- "indicatif",
- "inquire",
- "qrcode",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
-]
 
 [[package]]
 name = "find-crate"

@@ -34,7 +34,10 @@ use clap::{
 	Subcommand,
 	CommandFactory,
 };
-use clap_complete::Shell;
+
+use clap_complete::{
+	Shell
+};
 
 use futures_util::{
 	StreamExt
@@ -126,7 +129,7 @@ enum HistoryEntry {
 
 fn history_path() -> Option<PathBuf> {
 	let mut path = dirs::data_dir()?;
-	path.push( "filemover" );
+	path.push( "capsule" );
 	path.push( "history.json" );
 	Some( path )
 }
@@ -196,10 +199,10 @@ fn format_timestamp( secs: u64 ) -> String {
 }
 
 #[derive(Parser)]
-#[command(name = "filemover", version, about = "CLI for the FileMover server")]
+#[command(name = "capsule", version, about = "CLI for the Capsule server")]
 struct CLI {
 	// #[arg(long, default_value = "http://localhost:9001")]
-	#[arg(long, default_value = "https://filemover.byseansingh.com")]
+	#[arg(long, default_value = "https://capsule.byseansingh.com")]
 	server: String,
 
 	#[command(subcommand)]
@@ -245,7 +248,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	let cli = CLI::parse();
 
 	if let Command::Completions { shell } = cli.command {
-		clap_complete::generate( shell, &mut CLI::command(), "filemover", &mut std::io::stdout() );
+		clap_complete::generate( shell, &mut CLI::command(), "capsule", &mut std::io::stdout() );
 		return Ok( () );
 	}
 
@@ -375,7 +378,7 @@ fn highlight_id( value: &str ) -> String {
 fn encrypt_into_temp_file( path: &Path, passphrase: SecretString, file_size: u64 ) -> Result<PathBuf, Box<dyn Error>> {
 	let mut temp_path: PathBuf = temp_dir();
 	temp_path.push(
-		format!( "flmvr-{}-{}",
+		format!( "capsule-{}-{}",
 			SystemTime::now().duration_since( UNIX_EPOCH )?.as_nanos(),
 			process::id(),
 		)
@@ -617,7 +620,7 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 
 	let download_path = if is_encrypted {
 		let mut temp = temp_dir();
-		temp.push( format!( "flmvr-dl-{}-{}", SystemTime::now().duration_since( UNIX_EPOCH )?.as_nanos(), process::id() ) );
+		temp.push( format!( "capsule-dl-{}-{}", SystemTime::now().duration_since( UNIX_EPOCH )?.as_nanos(), process::id() ) );
 		temp
 	} else {
 		filename.clone()

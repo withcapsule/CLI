@@ -1,5 +1,5 @@
 target/
-filemover-cli
+capsule-cli
 node_modules
 
 *.md
