@@ -31,8 +31,10 @@ use serde::{
 
 use clap::{
 	Parser,
-	Subcommand
+	Subcommand,
+	CommandFactory,
 };
+use clap_complete::Shell;
 
 use futures_util::{
 	StreamExt
@@ -230,15 +232,28 @@ enum Command {
 
 	#[command(visible_alias = "r", about = "Show recent uploads and downloads")]
 	Recents,
+
+	#[command(hide = true, about = "Generate shell completions")]
+	Completions {
+		#[arg(value_enum)]
+		shell: Shell,
+	},
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
 	let cli = CLI::parse();
+
+	if let Command::Completions { shell } = cli.command {
+		clap_complete::generate( shell, &mut CLI::command(), "filemover", &mut std::io::stdout() );
+		return Ok( () );
+	}
+
 	let base = &cli.server.trim_end_matches( '/' ).to_string();
 	let client = Client::new();
 
 	match cli.command {
+		Command::Completions { .. } => unreachable!(),
 		Command::Ping => {
 			let url = format!( "{}/ping", base );
 			let resp = client.get( url ).send().await?;
