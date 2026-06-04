@@ -238,6 +238,12 @@ struct CLI {
 
 
 #[derive(Subcommand)]
+enum RecentsCommand {
+	#[command(about = "Clear all recent history")]
+	Clear,
+}
+
+#[derive(Subcommand)]
 enum Command {
 	#[command(visible_alias = "p", about = "Test server connection with a ping")]
 	Ping,
@@ -265,8 +271,11 @@ enum Command {
 		id_or_url: String
 	},
 
-	#[command(visible_alias = "r", about = "Show recent uploads and downloads")]
-	Recents,
+	#[command(visible_alias = "r", about = "Show recent uploads and downloads, --help for more")]
+	Recents {
+		#[command(subcommand)]
+		action: Option<RecentsCommand>,
+	},
 
 	#[command( visible_alias = "del", about = "Delete a file by ID" )]
 	Delete {
@@ -316,36 +325,44 @@ async fn main() -> Result<(), Box<dyn Error>> {
 			file_status( &client, base, id_or_url ).await?;
 		}
 
-		Command::Recents => {
-			let entries = load_history();
+		Command::Recents { action } => {
+			match action {
+				Some( RecentsCommand::Clear ) => {
+					save_history( vec![] );
+					println!( "\nHistory cleared.\n" );
+				}
+				None => {
+					let entries = load_history();
 
-			if entries.is_empty() {
-				println!( "\nNo recent activity.\n" );
-				return Ok( () );
-			}
-
-			println!();
-
-			for entry in entries.iter().rev() {
-				match entry {
-					HistoryEntry::Upload { file_name, file_id, url, encrypted, timestamp } => {
-						let lock = if *encrypted { " [encrypted]" } else { "" };
-						println!(
-							"  \x1b[92mUPLOAD\x1b[0m  {}{}\n          ID: {}  |  {}\n          {}\n",
-							file_name, lock,
-							highlight_id( file_id ),
-							format_timestamp( *timestamp ),
-							highlight_link( url ),
-						);
+					if entries.is_empty() {
+						println!( "\nNo recent activity.\n" );
+						return Ok( () );
 					}
-					HistoryEntry::Download { file_name, file_id, encrypted, timestamp } => {
-						let lock = if *encrypted { " [encrypted]" } else { "" };
-						println!(
-							"  \x1b[94mDOWNLOAD\x1b[0m  {}{}\n            ID: {}  |  {}\n",
-							file_name, lock,
-							highlight_id( file_id ),
-							format_timestamp( *timestamp ),
-						);
+
+					println!();
+
+					for entry in entries.iter().rev() {
+						match entry {
+							HistoryEntry::Upload { file_name, file_id, url, encrypted, timestamp } => {
+								let lock = if *encrypted { " [encrypted]" } else { "" };
+								println!(
+									"  \x1b[92mUPLOAD\x1b[0m  {}{}\n          ID: {}  |  {}\n          {}\n",
+									file_name, lock,
+									highlight_id( file_id ),
+									format_timestamp( *timestamp ),
+									highlight_link( url ),
+								);
+							}
+							HistoryEntry::Download { file_name, file_id, encrypted, timestamp } => {
+								let lock = if *encrypted { " [encrypted]" } else { "" };
+								println!(
+									"  \x1b[94mDOWNLOAD\x1b[0m  {}{}\n            ID: {}  |  {}\n",
+									file_name, lock,
+									highlight_id( file_id ),
+									format_timestamp( *timestamp ),
+								);
+							}
+						}
 					}
 				}
 			}
