@@ -218,12 +218,12 @@ enum Command {
 
 	#[command(visible_alias = "u", about = "Upload a file to the server")]
 	Upload {
-		path: PathBuf,
+		path: PathBuf
 	},
 
 	#[command(visible_alias = "ue", about = "Locally encrypt a file, then upload a file to the server")]
 	UploadEncrypted {
-		path: PathBuf,
+		path: PathBuf
 	},
 
 	#[command(visible_alias = "d", about = "Download a recently uploaded file")]
@@ -236,11 +236,16 @@ enum Command {
 
 	#[command(visible_alias = "s", about = "Show metadata for an uploaded file")]
 	Status {
-		id_or_url: String,
+		id_or_url: String
 	},
 
 	#[command(visible_alias = "r", about = "Show recent uploads and downloads")]
 	Recents,
+
+	#[command( visible_alias = "del", about = "Delete a file by ID" )]
+	Delete {
+		id_or_url: String
+	},
 
 	#[command(hide = true, about = "Generate shell completions")]
 	Completions {
@@ -318,6 +323,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					}
 				}
 			}
+		}
+
+		Command::Delete { id_or_url } => {
+			let id: String = extract_id_from_input( &id_or_url );
+			let res = client.get( format!( "{}/delete/{}", base, id ) ).send().await?;
+
+			if !res.status().is_success() {
+				let status = res.status();
+				let body = res.text().await.unwrap_or_default();
+				eprintln!( "\nDeletion failed: ({}): {}\n", status, body );
+				return Ok( () )
+			}
+
+			println!( "\nFile {} deleted", id );
 		}
 	}
 
