@@ -234,6 +234,11 @@ enum Command {
 		output: Option<PathBuf>,
 	},
 
+	#[command(visible_alias = "s", about = "Show metadata for an uploaded file")]
+	Status {
+		id_or_url: String,
+	},
+
 	#[command(visible_alias = "r", about = "Show recent uploads and downloads")]
 	Recents,
 
@@ -274,6 +279,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 		Command::Download { id_or_url, output } => {
 			download_file( &client, base, id_or_url, output ).await?;
+		}
+
+		Command::Status { id_or_url } => {
+			file_status( &client, base, id_or_url ).await?;
 		}
 
 		Command::Recents => {
@@ -374,6 +383,55 @@ fn highlight_link( value: &str ) -> String {
 
 fn highlight_id( value: &str ) -> String {
 	format!( "\x1b[92m{}\x1b[0m", value )
+}
+
+fn format_size( bytes: u64 ) -> String {
+	match bytes {
+		b if b < 1024             => format!( "{} B", b ),
+		b if b < 1024 * 1024      => format!( "{:.1} KB", b as f64 / 1024.0 ),
+		b if b < 1024 * 1024 * 1024 => format!( "{:.1} MB", b as f64 / (1024.0 * 1024.0) ),
+		b                         => format!( "{:.2} GB", b as f64 / (1024.0 * 1024.0 * 1024.0) ),
+	}
+}
+
+fn format_duration( secs: u64 ) -> String {
+	match secs {
+		0              => "expired".to_string(),
+		1..=59         => format!( "{}s", secs ),
+		60..=3599      => format!( "{}m {}s", secs / 60, secs % 60 ),
+		_              => format!( "{}h {}m", secs / 3600, (secs % 3600) / 60 ),
+	}
+}
+
+async fn file_status( client: &Client, base: &str, id_or_url: String ) -> Result<(), Box<dyn Error>> {
+	let id = extract_id_from_input( &id_or_url );
+	let url = format!( "{}/status/{}", base, id );
+	let resp = client.get( &url ).send().await?;
+
+	if !resp.status().is_success() {
+		let status = resp.status();
+		let body = resp.text().await.unwrap_or_default();
+		eprintln!( "\nStatus failed ({}): {}\n", status, body );
+		return Ok( () );
+	}
+
+	let json: serde_json::Value = resp.json().await?;
+
+	let file_name    = json["file_name"].as_str().unwrap_or( "unknown" );
+	let file_size    = json["file_size"].as_u64().unwrap_or( 0 );
+	let upload_time  = json["upload_time"].as_u64().unwrap_or( 0 );
+	let time_remaining = json["time_remaining"].as_u64().unwrap_or( 0 );
+	let is_encrypted = json["is_encrypted"].as_bool().unwrap_or( false );
+
+	let lock = if is_encrypted { " \x1b[93m[encrypted]\x1b[0m" } else { "" };
+
+	println!( "\n  \x1b[92m{}\x1b[0m{}", file_name, lock );
+	println!( "  Size:       {}", format_size( file_size ) );
+	println!( "  Uploaded:   {}", format_timestamp( upload_time ) );
+	println!( "  Expires in: {}", format_duration( time_remaining ) );
+	println!( "  ID:         {}\n", highlight_id( &id ) );
+
+	return Ok( () );
 }
 
 fn encrypt_into_temp_file( path: &Path, passphrase: SecretString, file_size: u64 ) -> Result<PathBuf, Box<dyn Error>> {
