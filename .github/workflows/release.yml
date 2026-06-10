@@ -58,18 +58,21 @@ jobs:
             - name: Package
               shell: bash
               run: |
-                  EXT=""
-                  if [[ "${{ matrix.target }}" == *"windows"* ]]; then EXT=".exe"; fi
-                  BINARY=target/${{ matrix.target }}/release/capsule${EXT}
-                  ARCHIVE=capsule-${{ matrix.name }}.tar.gz
-                  tar -czf "$ARCHIVE" -C "$(dirname $BINARY)" "$(basename $BINARY)"
-                  echo "SHA256 for $ARCHIVE: $(sha256sum $ARCHIVE | awk '{print $1}')"
+                  if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+                    cp target/${{ matrix.target }}/release/capsule.exe capsule-${{ matrix.name }}.exe
+                    echo "SHA256 for capsule-${{ matrix.name }}.exe: $(sha256sum capsule-${{ matrix.name }}.exe | awk '{print $1}')"
+                  else
+                    BINARY=target/${{ matrix.target }}/release/capsule
+                    ARCHIVE=capsule-${{ matrix.name }}.tar.gz
+                    tar -czf "$ARCHIVE" -C "$(dirname $BINARY)" "$(basename $BINARY)"
+                    echo "SHA256 for $ARCHIVE: $(sha256sum $ARCHIVE | awk '{print $1}')"
+                  fi
 
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
                   name: capsule-${{ matrix.name }}
-                  path: capsule-${{ matrix.name }}.tar.gz
+                  path: capsule-${{ matrix.name }}${{ contains(matrix.target, 'windows') && '.exe' || '.tar.gz' }}
 
     release:
         name: Publish release
@@ -87,12 +90,14 @@ jobs:
             - name: Print SHA256 hashes
               run: |
                   echo "=== SHA256 hashes for capsule.rb ==="
-                  for f in capsule-*.tar.gz; do
-                    echo "$f: $(sha256sum $f | awk '{print $1}')"
+                  for f in capsule-*.tar.gz capsule-*.exe; do
+                    [ -f "$f" ] && echo "$f: $(sha256sum $f | awk '{print $1}')"
                   done
 
             - name: Create GitHub release
               uses: softprops/action-gh-release@v2
               with:
-                  files: capsule-*.tar.gz
+                  files: |
+                      capsule-*.tar.gz
+                      capsule-*.exe
                   generate_release_notes: true
