@@ -14,12 +14,22 @@ jobs:
                 include:
                     - target: aarch64-apple-darwin
                       os: macos-latest
+                      name: aarch64-macos
                     - target: x86_64-apple-darwin
                       os: macos-latest
+                      name: x86_64-macos
                     - target: aarch64-unknown-linux-gnu
                       os: ubuntu-latest
+                      name: aarch64-linux
                     - target: x86_64-unknown-linux-gnu
                       os: ubuntu-latest
+                      name: x86_64-linux
+                    - target: x86_64-pc-windows-msvc
+                      os: windows-latest
+                      name: x86_64-windows
+                    - target: aarch64-pc-windows-msvc
+                      os: windows-latest
+                      name: aarch64-windows
 
         steps:
             - uses: actions/checkout@v4
@@ -46,17 +56,20 @@ jobs:
               run: cargo build --release --target ${{ matrix.target }}
 
             - name: Package
+              shell: bash
               run: |
-                  BINARY=target/${{ matrix.target }}/release/capsule
-                  ARCHIVE=capsule-${{ matrix.target }}.tar.gz
+                  EXT=""
+                  if [[ "${{ matrix.target }}" == *"windows"* ]]; then EXT=".exe"; fi
+                  BINARY=target/${{ matrix.target }}/release/capsule${EXT}
+                  ARCHIVE=capsule-${{ matrix.name }}.tar.gz
                   tar -czf "$ARCHIVE" -C "$(dirname $BINARY)" "$(basename $BINARY)"
                   echo "SHA256 for $ARCHIVE: $(sha256sum $ARCHIVE | awk '{print $1}')"
 
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
-                  name: capsule-${{ matrix.target }}
-                  path: capsule-${{ matrix.target }}.tar.gz
+                  name: capsule-${{ matrix.name }}
+                  path: capsule-${{ matrix.name }}.tar.gz
 
     release:
         name: Publish release
@@ -83,4 +96,3 @@ jobs:
               with:
                   files: capsule-*.tar.gz
                   generate_release_notes: true
-
