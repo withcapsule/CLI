@@ -3,6 +3,10 @@ name = "capsule-cli"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "capsule"
+path = "src/main.rs"
+
 [dependencies]
 age = "0.11.3"
 bip39 = { version = "2.2.2", features = [ "rand" ] }
@@ -19,3 +23,4 @@ serde_json = "1"
 tokio = { version = "1.52.3", features = [ "full" ] }
 tokio-util = { version = "0.7", features = [ "io" ] }
 crossterm = "0.28"
+
