@@ -4,7 +4,10 @@ use std::{
 		Error
 	},
 	fs::{
+		write,
+		create_dir_all,
 		Metadata,
+		read_to_string,
 		File as StdFile
 	},
 	io::{
@@ -26,6 +29,7 @@ use std::{
 };
 
 use crossterm::{
+	cursor,
 	event::{
 		self,
 		Event
@@ -73,7 +77,9 @@ use inquire::{
 
 use qrcode::{
 	QrCode,
-	render::unicode,
+	render::{
+		unicode
+	},
 };
 
 use reqwest::{
@@ -132,7 +138,7 @@ fn wait_and_clear_screen() {
 	}
 	let _ = terminal::disable_raw_mode();
 	let _ = stdout().execute( terminal::Clear( All ) );
-	let _ = stdout().execute( crossterm::cursor::MoveTo( 0, 0 ) );
+	let _ = stdout().execute( cursor::MoveTo( 0, 0 ) );
 }
 const DEFAULT_SERVER: &str = "https://send.withcapsule.dev";
 
@@ -159,6 +165,37 @@ fn history_path() -> Option<PathBuf> {
 	path.push( "capsule" );
 	path.push( "history.json" );
 	Some( path )
+}
+
+fn server_config_path() -> Option<PathBuf> {
+	let mut path = dirs::data_dir()?;
+
+	path.push( "capsule" );
+	path.push( "server.txt" );
+
+	return Some( path );
+}
+
+fn load_server() -> String {
+	let path = match server_config_path() {
+		Some( p ) => p,
+		None => return DEFAULT_SERVER.to_string(),
+	};
+
+	read_to_string( &path ).ok().map( |s| s.trim().to_string() ).filter( |s| !s.is_empty() ).unwrap_or_else( || DEFAULT_SERVER.to_string() )
+}
+
+fn save_server( server: &str ) {
+	let path = match server_config_path() {
+		Some( p ) => p,
+		None => return,
+	};
+
+	if let Some( parent ) = path.parent() {
+		let _ = create_dir_all( parent );
+	}
+
+	let _ = write( &path, server );
 }
 
 fn load_history() -> Vec<HistoryEntry> {
@@ -228,9 +265,8 @@ fn format_timestamp( secs: u64 ) -> String {
 #[derive(Parser)]
 #[command(name = "capsule", version, about = "CLI for the Capsule server")]
 struct CLI {
-	// #[arg(long, default_value = "http://localhost:9001")]
-	#[arg(long, default_value = DEFAULT_SERVER)]
-	server: String,
+	#[arg(long)]
+	server: Option<String>,
 
 	#[command(subcommand)]
 	command: Command,
@@ -241,6 +277,20 @@ struct CLI {
 enum RecentsCommand {
 	#[command(about = "Clear all recent history")]
 	Clear,
+}
+
+#[derive(Subcommand)]
+enum ServerCommand {
+	#[command(about = "Show the currently active server")]
+	Info,
+
+	#[command(about = "Set a custom server address")]
+	Set {
+		address: String,
+	},
+
+	#[command(about = "Reset the server to the default (https://send.withcapsule.dev)")]
+	Reset,
 }
 
 #[derive(Subcommand)]
@@ -266,7 +316,7 @@ enum Command {
 		output: Option<PathBuf>,
 	},
 
-	#[command(visible_alias = "s", about = "Show metadata for an uploaded file")]
+	#[command(visible_alias = "s", about = "Show status and metadata for an uploaded file")]
 	Status {
 		id_or_url: String
 	},
@@ -280,6 +330,12 @@ enum Command {
 	#[command( visible_alias = "del", about = "Delete a file by ID" )]
 	Delete {
 		id_or_url: String
+	},
+
+	#[command(visible_alias = "sv", about = "Manage the server address")]
+	Server {
+		#[command(subcommand)]
+		action: ServerCommand,
 	},
 
 	#[command(hide = true, about = "Generate shell completions")]
@@ -298,11 +354,38 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		return Ok( () );
 	}
 
-	let base = &cli.server.trim_end_matches( '/' ).to_string();
+	let base = cli.server
+		.unwrap_or_else( load_server )
+		.trim_end_matches( '/' )
+		.to_string();
+	let base = &base;
 	let client = Client::new();
 
 	match cli.command {
 		Command::Completions { .. } => unreachable!(),
+
+		Command::Server { action } => {
+			match action {
+				ServerCommand::Info => {
+					let server = load_server();
+					let is_default = server == DEFAULT_SERVER;
+					println!( "\n  Server: {}{}\n",
+						highlight_link( &server ),
+						if is_default { "  (default)" } else { "" }
+					);
+				}
+				ServerCommand::Set { address } => {
+					let address = address.trim_end_matches( '/' ).to_string();
+					save_server( &address );
+					println!( "\n  Server set to: {}\n", highlight_link( &address ) );
+				}
+				ServerCommand::Reset => {
+					save_server( DEFAULT_SERVER );
+					println!( "\n  Server reset to: {}\n", highlight_link( DEFAULT_SERVER ) );
+				}
+			}
+			return Ok( () );
+		}
 		Command::Ping => {
 			let url = format!( "{}/ping", base );
 			let resp = client.get( url ).send().await?;
