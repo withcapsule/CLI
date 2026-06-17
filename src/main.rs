@@ -453,7 +453,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 		Command::Delete { id_or_url } => {
 			let id: String = extract_id_from_input( &id_or_url );
-			let res = client.get( format!( "{}/delete/{}", base, id ) ).send().await?;
+			let res = client.delete( format!( "{}/delete/{}", base, id ) ).send().await?;
 
 			if !res.status().is_success() {
 				let status = res.status();
