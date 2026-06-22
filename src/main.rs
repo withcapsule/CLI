@@ -358,8 +358,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		.unwrap_or_else( load_server )
 		.trim_end_matches( '/' )
 		.to_string();
-	let base = &base;
-	let client = Client::new();
+	
+    let base = &base;
+	
+    let client = Client::new();
 
 	match cli.command {
 		Command::Completions { .. } => unreachable!(),
@@ -386,6 +388,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 			}
 			return Ok( () );
 		}
+
 		Command::Ping => {
 			let url = format!( "{}/ping", base );
 			let resp = client.get( url ).send().await?;
@@ -794,7 +797,7 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 
 	let total_size = resp.content_length().unwrap_or( 0 );
 	let pb = ProgressBar::new( total_size );
-	pb.set_style( ProgressStyle::default_bar()
+    pb.set_style( ProgressStyle::default_bar()
 		.template( "{spinner:.green} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})" )?
 		.progress_chars( "#>-" )
 	);
@@ -909,3 +912,4 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 
 	return Ok( () )
 }
+
