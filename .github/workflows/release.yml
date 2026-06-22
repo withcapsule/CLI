@@ -68,14 +68,14 @@ jobs:
                     echo "SHA256 for $ARCHIVE: $(sha256sum $ARCHIVE | awk '{print $1}')"
                   fi
 
-            - name: Upload artifact
+            - name: Upload Artifacts
               uses: actions/upload-artifact@v4
               with:
                   name: capsule-${{ matrix.name }}
                   path: capsule-${{ matrix.name }}${{ contains(matrix.target, 'windows') && '.exe' || '.tar.gz' }}
 
     release:
-        name: Publish release
+        name: Publish Release
         needs: build
         runs-on: ubuntu-latest
         permissions:
@@ -87,14 +87,14 @@ jobs:
               with:
                   merge-multiple: true
 
-            - name: Print SHA256 hashes
+            - name: Display SHA256 hashes
               run: |
                   echo "=== SHA256 hashes for capsule.rb ==="
                   for f in capsule-*.tar.gz capsule-*.exe; do
                     [ -f "$f" ] && echo "$f: $(sha256sum $f | awk '{print $1}')"
                   done
 
-            - name: Create GitHub release
+            - name: Create GitHub Release
               uses: softprops/action-gh-release@v2
               with:
                   files: |
@@ -102,10 +102,18 @@ jobs:
                       capsule-*.exe
                   generate_release_notes: true
 
-            - name: Trigger formula update
+            - name: Update Homebrew
               run: |
                   curl -X POST \
                     -H "Authorization: Bearer ${{ secrets.HOMEBREW_TAP_TOKEN }}" \
                     -H "Accept: application/vnd.github+json" \
                     https://api.github.com/repos/withcapsule/homebrew-capsule/dispatches \
                     -d "{\"event_type\":\"update-formula\",\"client_payload\":{\"version\":\"${GITHUB_REF_NAME#v}\"}}"
+
+            - name: Update Fedora COPR
+              run: |
+                  curl -X POST \
+                    -H "Authorization: Bearer ${{ secrets.COPR_TOKEN }}" \
+                    -H "Accept: application/vnd.github+json" \
+                    https://api.github.com/repos/withcapsule/copr-capsule/dispatches \
+                    -d "{\"event_type\":\"update-copr\",\"client_payload\":{\"version\":\"${GITHUB_REF_NAME#v}\"}}"
