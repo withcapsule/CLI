@@ -1,61 +1,94 @@
 # Capsule CLI
 
-This is the command-line client for Capsule. It can upload files, download them by ID, inspect status, delete them from the server, and optionally encrypt files locally before upload.
+Terminal client for [Capsule](https://withcapsule.dev) that supports file encryption, local history, and custom server configurations.
 
-## Install from source
+![Capsule demo](demo/video2.gif)
 
+## Install
+
+**MacOS & Linux (via Homebrew)**
+```sh
+brew install capsule
+```
+
+**Fedora Linux 43+ (via COPR)**
+```sh
+sudo dnf copr enable seanathan/capsule
+sudo dnf install capsule
+```
+
+**From source**
 ```sh
 cargo build --release
 ./target/release/capsule --help
 ```
 
-For development (compiles a debug variant):
+
+## Usage examples
 
 ```sh
-cargo run
+# Upload a file
+capsule u photo.jpg
+
+# Upload with encryption (generates a 12-word key)
+capsule ue secret.pdf
+
+# Download by ID or full URL
+capsule download aB3xZ9Qr
+capsule d https://send.withcapsule.dev/aB3xZ9Qr
+
+# Download to a specific path
+capsule download aB3xZ9Qr --output ~/Downloads/photo.jpg
+
+# Check on a file's remaining time
+capsule status aB3xZ9Qr
+
+# View recent transfers
+capsule recents
 ```
-
-## Main commands
-
-- `ping` - test server connectivity
-- `upload` - upload a file
-- `upload-encrypted` - encrypt locally, then upload
-- `download` - download a file by ID
-- `status` - show metadata for a file
-- `recents` - show recent transfers
-- `delete` - delete a file from the server
-- `server` - view or change the configured server
-
-The CLI also supports shell completions:
-
-```sh
-capsule completions bash
-capsule completions zsh
-capsule completions fish
-...etc
-```
-
-## Server selection
-
-You can override the server per command:
-
-```sh
-capsule --server http://localhost:9001 ping
-```
-
-Or store it for later:
-
-```sh
-capsule server set http://localhost:9001
-```
-
-## Local state
-
-The CLI stores a small amount of local state under the platform data directory:
-
-- `capsule/server.txt` - saved server address
-- `capsule/history.json` - recent uploads and downloads
 
 ## Encryption
 
-`upload-encrypted` performs encryption on the client before the file is sent to the server. The server only stores the encrypted file and a flag that it was uploaded in encrypted form.
+![Encrypted upload demo](demo/video_ue.gif)
+
+`upload-encrypted` encrypts the file on your device using [`age`](https://age-encryption.org) before it is sent to the server. The server stores only the encrypted bytes and never sees the plaintext. A 12-word BIP39 mnemonic is generated and displayed on upload — give it to the recipient alongside the file ID. If you lose the mnemonic, the file cannot be recovered.
+
+```sh
+capsule upload-encrypted report.pdf
+# → File ID: aB3xZ9Qr
+# → Mnemonic: word word word word word word word word word word word word
+
+# will prompt for mnemonic, decrypts on device
+capsule download aB3xZ9Qr
+```
+
+<!--## Shell completions
+
+Each shell has a dedicated completions directory it sources automatically — no rc file edits needed.
+
+**Bash**
+```sh
+capsule completions bash > ~/.local/share/bash-completion/completions/capsule
+```
+
+**Zsh**
+```sh
+mkdir -p ~/.zfunc
+capsule completions zsh > ~/.zfunc/_capsule
+```
+Then add these two lines to `~/.zshrc` once (if not already present):
+```sh
+fpath=(~/.zfunc $fpath)
+autoload -Uz compinit && compinit
+```
+
+**Fish** (auto-sourced, no setup needed)
+```sh
+capsule completions fish > ~/.config/fish/completions/capsule.fish
+```
+
+**PowerShell**
+```powershell
+capsule completions powershell > "$HOME/Documents/PowerShell/completions/capsule.ps1"
+. "$HOME/Documents/PowerShell/completions/capsule.ps1"
+```-->
