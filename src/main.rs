@@ -636,9 +636,9 @@ fn decrypt_from_temp_file( temp_path: &Path, output_path: &Path, passphrase: Sec
 
 async fn upload_file( client:&Client, base: &str, path: PathBuf, encrypt: bool ) -> Result<(), Box<dyn Error>> {
 	let url = if encrypt {
-		format!( "{}/curlup?encrypted=true", base )
+		format!( "{}/upload?encrypted=true", base )
 	} else {
-		format!( "{}/curlup", base )
+		format!( "{}/upload", base )
 	};
 
 	let file_metadata: Metadata = match metadata( &path ).await {
