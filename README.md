@@ -4,6 +4,21 @@ Terminal client for [Capsule](https://withcapsule.dev) that supports file encryp
 
 ![Capsule demo](demo/video2.gif)
 
+## Encryption
+
+![Encrypted upload demo](demo/video_ue.gif)
+
+`upload-encrypted` encrypts the file on your device using [`age`](https://age-encryption.org) before it is sent to the server. The server stores only the encrypted bytes and never sees the plaintext. A 12-word BIP39 mnemonic is generated and displayed on upload — give it to the recipient alongside the file ID. If you lose the mnemonic, the file cannot be recovered.
+
+```sh
+capsule upload-encrypted report.pdf
+# → File ID: aB3xZ9Qr
+# → Mnemonic: word word word word word word word word word word word word
+
+# will prompt for mnemonic, decrypts on device
+capsule download aB3xZ9Qr
+```
+
 ## Install
 
 **MacOS & Linux (via Homebrew)**
@@ -45,21 +60,6 @@ capsule status aB3xZ9Qr
 
 # View recent transfers
 capsule recents
-```
-
-## Encryption
-
-![Encrypted upload demo](demo/video_ue.gif)
-
-`upload-encrypted` encrypts the file on your device using [`age`](https://age-encryption.org) before it is sent to the server. The server stores only the encrypted bytes and never sees the plaintext. A 12-word BIP39 mnemonic is generated and displayed on upload — give it to the recipient alongside the file ID. If you lose the mnemonic, the file cannot be recovered.
-
-```sh
-capsule upload-encrypted report.pdf
-# → File ID: aB3xZ9Qr
-# → Mnemonic: word word word word word word word word word word word word
-
-# will prompt for mnemonic, decrypts on device
-capsule download aB3xZ9Qr
 ```
 
 <!--## Shell completions
