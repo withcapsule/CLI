@@ -477,7 +477,7 @@ fn extract_file_id( body: &str ) -> Option<String> {
 	let start = body.find( marker )?;
 	let after = &body[ start + marker.len().. ];
 
-	let id: String = after.chars().take_while( |c| c.is_ascii_alphanumeric() ).collect();
+	let id: String = after.chars().take_while( |c| c.is_ascii_alphanumeric() || *c == '-' ).collect();
 
 	if id.is_empty() { None } else { Some( id ) }
 }
