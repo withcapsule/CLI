@@ -358,9 +358,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		.unwrap_or_else( load_server )
 		.trim_end_matches( '/' )
 		.to_string();
-	
+
     let base = &base;
-	
+
     let client = Client::new();
 
 	match cli.command {
@@ -496,7 +496,20 @@ fn extract_id_from_input( input: &str ) -> String {
 fn filename_from_headers( headers: &header::HeaderMap ) -> Option<PathBuf> {
 	let value = headers.get( header::CONTENT_DISPOSITION )?.to_str().ok()?;
 	let filename = parse_filename_param( value )?;
-	if filename.is_empty() { None } else { Some( Path::new( &filename ).file_name()?.into() ) }
+	sanitize_download_name( &filename )
+}
+
+
+
+fn sanitize_download_name( raw: &str ) -> Option<PathBuf> {
+	let base = Path::new( raw ).file_name()?.to_str()?;
+	if base.is_empty() || base == "." || base == ".." || base.len() > 255 {
+		return None;
+	}
+	if base.chars().any( |c| c.is_control() || matches!( c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' ) ) {
+		return None;
+	}
+	Some( PathBuf::from( base ) )
 }
 
 fn parse_filename_param( header_value: &str ) -> Option<String> {
@@ -913,3 +926,30 @@ async fn download_file( client:&Client, base: &str, id_or_url: String, output: O
 	return Ok( () )
 }
 
+#[cfg(test)]
+mod tests {
+	use super::sanitize_download_name;
+	use std::path::PathBuf;
+
+	#[test]
+	fn strips_server_supplied_traversal() {
+		assert_eq!( sanitize_download_name( "../../../../etc/passwd" ), Some( PathBuf::from( "passwd" ) ) );
+		assert_eq!( sanitize_download_name( "/etc/shadow" ), Some( PathBuf::from( "shadow" ) ) );
+		assert_eq!( sanitize_download_name( "a/b/c.txt" ), Some( PathBuf::from( "c.txt" ) ) );
+		assert_eq!( sanitize_download_name( ".." ), None );
+		assert_eq!( sanitize_download_name( "" ), None );
+	}
+
+	#[test]
+	fn rejects_control_and_reserved_chars() {
+		assert_eq!( sanitize_download_name( "a\r\nb.txt" ), None );
+		assert_eq!( sanitize_download_name( "a\"b.txt" ), None );
+		assert_eq!( sanitize_download_name( "a\0b" ), None );
+	}
+
+	#[test]
+	fn keeps_normal_names() {
+		assert_eq!( sanitize_download_name( "report.pdf" ), Some( PathBuf::from( "report.pdf" ) ) );
+		assert_eq!( sanitize_download_name( "My File (1).txt" ), Some( PathBuf::from( "My File (1).txt" ) ) );
+	}
+}
