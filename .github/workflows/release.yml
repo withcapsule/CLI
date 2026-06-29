@@ -117,3 +117,11 @@ jobs:
                     -H "Accept: application/vnd.github+json" \
                     https://api.github.com/repos/withcapsule/copr-capsule/dispatches \
                     -d "{\"event_type\":\"update-copr\",\"client_payload\":{\"version\":\"${GITHUB_REF_NAME#v}\"}}"
+
+            - name: Update Scoop
+              run: |
+                  curl -X POST \
+                    -H "Authorization: Bearer ${{ secrets.SCOOP_TAP_TOKEN }}" \
+                    -H "Accept: application/vnd.github+json" \
+                    https://api.github.com/repos/withcapsule/scoop-capsule/dispatches \
+                    -d "{\"event_type\":\"update-scoop\",\"client_payload\":{\"version\":\"${GITHUB_REF_NAME#v}\"}}"
